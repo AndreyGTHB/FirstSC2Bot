@@ -5,25 +5,33 @@ from sc2.constants import NEXUS, PROBE, PYLON
 
 
 class FirstBot(sc2.BotAI):
+
+    def probes_need(self) -> int:
+        return self.units(NEXUS).amount * 22
+
     async def build_workers(self):
-        nexuses = self.units(NEXUS)
-        print(nexuses.amount * 22)
-        if self.units(PROBE).amount >= nexuses.amount * 22:
-            return
-        for nexus in nexuses.ready.idle:
-            if self.can_afford(PROBE):
-                await self.do(nexus.train(PROBE))
+        for nexus in self.units(NEXUS).ready.idle:
+            if self.units(PROBE).amount < self.probes_need():
+                if self.can_afford(PROBE):
+                    await self.do(nexus.train(PROBE))
 
     async def build_pylons(self):
         if self.supply_left < 5:
             if self.can_afford(PYLON):
-                nexuses = self.units(NEXUS)
-                await self.build(PYLON, near=nexuses.first)
+                await self.build(PYLON, near=self.units(NEXUS).first)
+
+    async def expand(self):
+        nexuses = self.units(NEXUS)
+        if nexuses.amount < 2 or self.probes_need() - 4 >= self.units(PROBE):
+            if self.can_afford(NEXUS):
+                await self.expand_now()
 
     async def on_step(self, iteration):
+        print(probes_need())
         await self.distribute_workers()
         await self.build_workers()
         await self.build_pylons()
+        await self.expand()
 
 
 run_game(
