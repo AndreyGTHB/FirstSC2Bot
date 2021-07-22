@@ -1,4 +1,5 @@
 import sc2
+from sc2.units import Units
 from sc2 import run_game, maps, Race, Difficulty
 from sc2.player import Bot, Computer
 from sc2.constants import NEXUS, PROBE, PYLON, ASSIMILATOR, GATEWAY, \
@@ -7,6 +8,17 @@ from sc2.constants import NEXUS, PROBE, PYLON, ASSIMILATOR, GATEWAY, \
 
 class FirstBot(sc2.BotAI):
     PROBES_NEEDED = 60
+
+    def get_enemy_units(self) -> Units:
+        return self.state.enemy_units.not_structure
+    def get_enemy_structures(self) -> Units:
+        return self.state.enemy_units.structure
+    def find_target(self):
+        if self.get_enemy_units().exists:
+            return self.get_enemy_units().random
+        if self.get_enemy_structures().exists:
+            return self.get_enemy_structures().random
+        return self.enemy_start_locations[0]
 
     async def on_step(self, iteration):
         await self.distribute_workers()
@@ -18,6 +30,7 @@ class FirstBot(sc2.BotAI):
 
         await self.build_army_structures()
         await self.build_army()
+        await self.control_army()
 
     async def build_workers(self):
         for nexus in self.units(NEXUS).ready.idle:
@@ -29,11 +42,11 @@ class FirstBot(sc2.BotAI):
     async def build_pylons(self):
         if self.supply_left < 5 and not self.already_pending(PYLON):
             if self.can_afford(PYLON):
-                await self.build(PYLON, self.units(NEXUS).first)
+                await self.build(PYLON, self.units(NEXUS).random.position.towards(self.game_info.map_center, 3))
 
     async def expand(self):
         nexuses = self.units(NEXUS)
-        if nexuses.amount < 2 or self.units(PROBE).amount >= self.units(NEXUS) * 22 - 4:
+        if nexuses.amount < 2 or self.units(PROBE).amount >= self.units(NEXUS).amount * 22 - 4:
             if self.can_afford(NEXUS):
                 await self.expand_now()
 
@@ -55,13 +68,13 @@ class FirstBot(sc2.BotAI):
         pylons = self.units(PYLON).ready
         if pylons.exists:
             pylon = pylons.random
-            if not self.units(GATEWAY).ready.exists:
-                if self.can_afford(GATEWAY) and not self.already_pending(GATEWAY):
+            gateways = self.units(GATEWAY)
+            if gateways.amount < self.units(NEXUS).amount * 2:
+                if self.can_afford(GATEWAY):
                     await self.build(GATEWAY, pylon)
-            else:
-                if not self.units(CYBERNETICSCORE).exists:
-                    if self.can_afford(CYBERNETICSCORE) and not self.already_pending(CYBERNETICSCORE):
-                        await self.build(CYBERNETICSCORE, pylon)
+            if gateways.ready.exists and self.units(CYBERNETICSCORE).empty:
+                if self.can_afford(CYBERNETICSCORE) and not self.already_pending(CYBERNETICSCORE):
+                    await self.build(CYBERNETICSCORE, pylon)
 
     async def build_army(self):
         for gate in self.units(GATEWAY).ready.idle:
@@ -70,14 +83,21 @@ class FirstBot(sc2.BotAI):
             await self.do(gate.train(STALKER))
 
     async def control_army(self):
-        stalkers = self.units(STALKER)
-
+        stalkers = self.units(STALKER).ready
+        if stalkers.amount > 10:
+            for s in stalkers.idle:
+                await self.do(s.attack(self.find_target()))
+        elif stalkers.amount > 2:
+            for s in stalkers.idle:
+                if self.get_enemy_units().empty:
+                    return
+                await self.do(s.attack(self.get_enemy_units().random))
 
 run_game(
     maps.get("AbyssalReefLE"),
     [
         Bot(Race.Protoss, FirstBot()),
-        Computer(Race.Terran, Difficulty.Easy)
+        Computer(Race.Terran, Difficulty.Medium)
     ],
-    realtime=True
+    realtime=False
 )
